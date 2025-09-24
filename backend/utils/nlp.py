@@ -1,28 +1,42 @@
+import re
 import nltk
+from nltk.data import find
 from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from langdetect import detect
+from nltk.stem import WordNetLemmatizer
 
-# Baixar recursos
-nltk.download('punkt')
-nltk.download('punkt_tab')
-nltk.download('stopwords')
+# Função para garantir que os recursos necessários estejam baixados
+def download_nltk_resources():
+    resources = ["punkt", "stopwords", "wordnet", "omw-1.4"]
+    for resource in resources:
+        try:
+            find(f"corpora/{resource}")
+        except LookupError:
+            nltk.download(resource)
+
+download_nltk_resources()
+
+lemmatizer = WordNetLemmatizer()
+stop_words_en = set(stopwords.words("english"))
 
 def preprocess(text: str) -> str:
     """
-    Limpa o texto e remove stopwords do idioma detectado.
-    Suporta português e inglês.
+    Pré-processa texto em inglês:
+    - minúsculas
+    - remove URLs, emails e números
+    - remove pontuação
+    - tokeniza
+    - remove stop words
+    - aplica lematização
     """
-    # Detecta idioma
-    lang = detect(text)
-    
-    words = word_tokenize(text.lower())
-    
-    # Escolhe stopwords de acordo com o idioma
-    if lang == 'pt':
-        stop_words = stopwords.words('portuguese')
-    else:
-        stop_words = stopwords.words('english')
-    
-    words = [w for w in words if w.isalpha() and w not in stop_words]
-    return ' '.join(words)
+    text = text.lower()
+    text = re.sub(r"http\S+|www\S+|https\S+", " ", text)   # URLs
+    text = re.sub(r"\S+@\S+", " ", text)                   # emails
+    text = re.sub(r"\d+", " ", text)                       # números
+    text = re.sub(r"[^\w\s]", " ", text)                   # pontuação (!, ?, ., , etc.)
+    text = re.sub(r"[_]", " ", text)                       # underline ou resquícios
+
+    words = nltk.word_tokenize(text, language="english")
+    words = [w for w in words if w not in stop_words_en]
+    words = [lemmatizer.lemmatize(w) for w in words]
+
+    return " ".join(words)
