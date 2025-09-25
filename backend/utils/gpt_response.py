@@ -18,9 +18,9 @@ def generate_response_with_gpt(email_text: str, category: str) -> str:
         tone = "cordial e amigável"
 
     prompt = f"""
-    Você é um assistente que responde emails de clientes de forma {tone}.
-    Email: "{email_text}"
-    Responda de forma concisa e adequada.
+    Você é um assistente que responde email de clientes de forma {tone}.
+    O cliente diz: "{email_text}"
+    Responda o cliente de forma concisa e adequada.
     """
     response = client.chat.completions.create(
         model="gpt-4o-mini",

@@ -4,8 +4,24 @@ from pydantic import BaseModel
 from utils.ai_classifier import classify_email_ai
 from utils.ai_respondent import reply_email_ai
 from utils.file_extraction import extract_text
+from fastapi.middleware.cors import CORSMiddleware
+import os
+from dotenv import load_dotenv
 
-app = FastAPI(title="AutoU Email Classifier")
+app = FastAPI(title="AutoU Email Processor")
+
+load_dotenv()
+frontend_origin = os.getenv("FRONTEND_ORIGIN")
+
+origins = [frontend_origin] if frontend_origin else []
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class EmailContent(BaseModel):
     content: str
