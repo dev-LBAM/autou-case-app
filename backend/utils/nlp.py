@@ -6,7 +6,7 @@ from nltk.stem import WordNetLemmatizer
 
 # Função para garantir que os recursos necessários estejam baixados
 def download_nltk_resources():
-    resources = ["punkt", "stopwords", "wordnet", "omw-1.4"]
+    resources = ["punkt_tab", "punkt", "stopwords", "wordnet", "omw-1.4"]
     for resource in resources:
         try:
             find(f"corpora/{resource}")
