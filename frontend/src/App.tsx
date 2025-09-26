@@ -1,27 +1,45 @@
-// src/components/EmailProcessor.tsx
 import { useState, useRef, useEffect } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 
 interface ResponseData {
   category: string;
   suggested_response: string;
+  timestamp: string;
 }
 
 type Mode = "text" | "file" | null;
+
+const LOCAL_STORAGE_KEY = "email_responses";
 
 const EmailProcessor: React.FC = () => {
   const [mode, setMode] = useState<Mode>(null);
   const [content, setContent] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const [progress, setProgress] = useState<number>(0);
-  const [responses, setResponses] = useState<ResponseData[]>([]);
+  const [progress, setProgress] = useState<number>(15);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
+
+  const [responses, setResponses] = useState<ResponseData[]>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [error, setError] = useState<string>("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [visibleCount, setVisibleCount] = useState(5);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const prevLength = useRef<number>(responses.length);
+
+  useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(responses));
+  }, [responses]);
 
   const handleModeChange = (newMode: Mode) => {
     setMode(newMode);
@@ -52,7 +70,17 @@ const EmailProcessor: React.FC = () => {
     e.preventDefault();
     setError("");
     setLoading(true);
-    setProgress(0);
+    setContent("");
+    setFile(null);
+
+    const controller = new AbortController();
+    setAbortController(controller);
+
+    setProgress(0); // zera a barra
+  const progressInterval = setInterval(() => {
+    setProgress((prev) => (prev < 95 ? prev + 1 : prev)); // vai até 95% enquanto espera
+  }, 50);
+
 
     try {
       let res: Response;
@@ -62,12 +90,14 @@ const EmailProcessor: React.FC = () => {
         res = await fetch(`${import.meta.env.VITE_BACKEND_URL}/process_email/file`, {
           method: "POST",
           body: formData,
+          signal: controller.signal,
         });
       } else if (mode === "text" && content.trim()) {
         res = await fetch(`${import.meta.env.VITE_BACKEND_URL}/process_email`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content }),
+          signal: controller.signal,
         });
       } else {
         setError("Por favor, escolha uma opção e forneça os dados.");
@@ -75,10 +105,8 @@ const EmailProcessor: React.FC = () => {
         return;
       }
 
-      for (let i = 0; i <= 100; i += 5) {
-        setProgress(i);
-        await new Promise((r) => setTimeout(r, 20));
-      }
+      clearInterval(progressInterval);
+      setProgress(100); 
 
       if (!res.ok) {
         const data = await res.json();
@@ -86,20 +114,41 @@ const EmailProcessor: React.FC = () => {
       }
 
       const data: ResponseData = await res.json();
-      setResponses((prev) => [data, ...prev]);
+      const formatted: ResponseData = {
+        ...data,
+        timestamp: new Date().toLocaleString("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+      setTimeout(() => setResponses((prev) => [formatted, ...prev]), 700);
     } catch (err: any) {
-      setError(err.message);
+      if (err.name === "AbortError") {
+        setError("Processamento cancelado.");
+      } else {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
-      setProgress(0);
+      setTimeout(() => setLoading(false), 500);
+      setTimeout(() => setProgress(0), 600);
+      setAbortController(null);
     }
   };
 
-  // rola até a última resposta adicionada
+  const handleCancel = () => {
+    abortController?.abort();
+  };
+
+  const showMore = () => setVisibleCount((prev) => prev + 5);
+
   useEffect(() => {
-    if (responses.length > 0 && cardRefs.current[0]) {
+    if (responses.length > prevLength.current && cardRefs.current[0]) {
       cardRefs.current[0].scrollIntoView({ behavior: "smooth" });
     }
+    prevLength.current = responses.length;
   }, [responses]);
 
   return (
@@ -114,7 +163,6 @@ const EmailProcessor: React.FC = () => {
           <span className="font-semibold text-pink-400">Improdutivo</span> e receba respostas automáticas.
         </p>
 
-        {/* Seleção de modo */}
         <div className="grid grid-cols-2 gap-6 mb-8">
           <button
             type="button"
@@ -126,9 +174,7 @@ const EmailProcessor: React.FC = () => {
             }`}
           >
             <span className="block text-xl font-semibold">✍️ Digitar Texto</span>
-            <span className="text-sm text-gray-400">
-              Escreva manualmente o conteúdo do email
-            </span>
+            <span className="text-sm text-gray-400">Escreva manualmente o conteúdo do email</span>
           </button>
 
           <button
@@ -145,13 +191,10 @@ const EmailProcessor: React.FC = () => {
           </button>
         </div>
 
-        {/* Formulário */}
         <form onSubmit={handleSubmit} className="space-y-6">
           {mode === "text" && (
             <div>
-              <label className="block text-gray-300 font-semibold mb-2">
-                Digite o conteúdo do email:
-              </label>
+              <label className="block text-gray-300 font-semibold mb-2">Digite o conteúdo do email:</label>
               <textarea
                 className="w-full p-4 border border-gray-600 rounded-xl bg-gray-700 text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 placeholder="Escreva seu email aqui..."
@@ -164,9 +207,7 @@ const EmailProcessor: React.FC = () => {
 
           {mode === "file" && (
             <div>
-              <label className="block text-gray-300 font-semibold mb-2">
-                Selecione o arquivo:
-              </label>
+              <label className="block text-gray-300 font-semibold mb-2">Selecione o arquivo:</label>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -178,31 +219,42 @@ const EmailProcessor: React.FC = () => {
             </div>
           )}
 
-          <button
-            type="submit"
-            className="w-full py-3 px-4 bg-indigo-600 text-white font-bold rounded-xl shadow-md hover:bg-indigo-700 transition-all disabled:opacity-50"
-            disabled={loading}
-          >
-            {loading ? "Processando..." : "Enviar"}
-          </button>
+          <div className="flex gap-4">
+            <button
+              type="submit"
+              className={`flex-1 py-3 px-4 bg-indigo-600 text-white font-bold rounded-xl shadow transition-all ${
+                loading ? "cursor-wait opacity-50" : ""
+              }`}
+              disabled={loading}
+            >
+              {loading ? "Processando..." : "Enviar"}
+            </button>
+
+            {loading && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="py-3 px-4 bg-red-600 text-white font-bold rounded-xl shadow hover:bg-red-700 transition-all"
+              >
+                Cancelar
+              </button>
+            )}
+          </div>
         </form>
 
-        {/* Barra de progresso */}
         {loading && (
           <div className="mt-6">
-            <div className="w-full bg-gray-700 rounded-full h-4">
+            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
               <div
-                className="bg-indigo-500 h-4 rounded-full transition-all"
+                className="bg-indigo-600 h-2 rounded-full transition-all duration-500 progress-striped"
                 style={{ width: `${progress}%` }}
               ></div>
             </div>
           </div>
         )}
 
-        {/* Erro */}
         {error && <p className="text-red-500 mt-6 text-center">{error}</p>}
 
-        {/* Histórico */}
         <div className="mt-8">
           <h2 className="text-2xl font-bold text-indigo-400 mb-4">📜 Histórico</h2>
 
@@ -213,13 +265,17 @@ const EmailProcessor: React.FC = () => {
             {responses.length === 0 && (
               <p className="text-gray-500 text-center">Nenhuma resposta processada ainda.</p>
             )}
-
-{responses.map((resp, index) => (
+{responses.slice(0, visibleCount).map((resp, index) => (
   <div
     key={index}
-    ref={(el: HTMLDivElement | null) => { cardRefs.current[index] = el; }}
+    ref={(el: HTMLDivElement | null) => {
+      cardRefs.current[index] = el;
+    }}
     className="p-4 bg-gray-800 rounded-xl shadow border border-gray-700"
+    style={{ scrollMarginTop: "20px" }} // <- distância do topo ao rolar
   >
+    <p className="text-sm text-gray-400 mb-2">{resp.timestamp}</p>
+
     <p className="text-lg">
       <span className="font-semibold text-yellow-200">Categoria:</span>{" "}
       <span
@@ -243,6 +299,15 @@ const EmailProcessor: React.FC = () => {
   </div>
 ))}
 
+
+            {visibleCount < responses.length && (
+              <button
+                onClick={showMore}
+                className="mt-2 w-full py-2 text-sm text-indigo-400 hover:underline bg-gray-800 rounded-md"
+              >
+                Mostrar mais
+              </button>
+            )}
           </div>
         </div>
       </div>
